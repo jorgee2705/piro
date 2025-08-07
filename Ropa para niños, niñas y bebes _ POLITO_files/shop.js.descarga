@@ -1,0 +1,209 @@
+
+
+"use strict";
+
+if (SEGMENTIFY_SHOP_JS_LOADED) { throw new Error('Segmentify Shop JS is already loaded!'); }
+
+window.sgfLayer = window.sgfLayer || {};
+
+var MAX_TRY_COUNT_FOR_PROXY_SGM = 25;
+var CONTROL_INTERVAL_SGM = 100;
+var SEGMENTIFY_SHOP_JS_LOADED = true;
+
+function SegmentifyIntegration(jQuery) {
+  
+  var readCookie = function (cookie_name) {
+    if (!cookie_name) return null;
+    
+    var cookies = document.cookie.split(';');
+    for (var i = 0; i < cookies.length; i++) {
+      var _cookie = cookies[i].trim();
+      var _first_separator_pos = _cookie.indexOf('=');
+      var _name = _cookie.slice(0, _first_separator_pos);
+      if (_name == cookie_name) {
+        return _cookie.slice(_first_separator_pos + 1, _cookie.length);
+      }
+    }
+    
+    return null;
+  };
+  
+  // update cart information
+  var updateCart = function (count) {
+    // check count
+    count = count || 0;
+    if(count > MAX_TRY_COUNT_FOR_PROXY_SGM) return;
+
+    // get cart and Segmentify data
+    var basketId = readCookie("cart");
+    var sessionData = {
+      "userId": _SgmntfY_._getUserId(),
+      "sessionId": _SgmntfY_._getSessionId(),
+      "basketId": basketId,
+      "device": _SgmntfY_._variables.ua.type,
+      "os": _SgmntfY_._variables.ua.os,
+      "browser": _SgmntfY_._variables.ua.name,
+      "region": _SgmntfY_._variables.region
+    };
+
+    // if user or session is not ready, retry
+    if(!sessionData.userId || !sessionData.sessionId) {
+      setTimeout(updateCart, CONTROL_INTERVAL_SGM, ++count);
+      return;
+    }
+    
+    // if basket empty, wait until basket
+    if (basketId != null) {
+      const attributes = { "segmentify_identify": sessionData };
+      fetch(window.Shopify.routes.root + 'cart/update.js', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ attributes: attributes })
+      })
+      .then(response => response.json())
+      .then(cart => {
+        console.log("send note_attributes and response", sessionData, cart);
+      })
+      .catch((error) => {
+        console.error('Error:', error);
+      });
+
+      // send data
+      jQuery.post("/apps/segmentify/session", sessionData, 'json');
+    }
+  }
+  
+  updateCart(1);
+  
+  // update checkout information
+  var updateCheckout = function (count) {
+    // check count
+    if(count > MAX_TRY_COUNT_FOR_PROXY_SGM) return;
+    
+    // check page and checkout token
+    var sg_loc = document.location.href;
+    var sg_uri = null;
+    var sg_arr = null;
+    
+    if(sg_loc.indexOf("/checkouts/") > -1){
+      sg_uri = IntelliURL.Parse(sg_loc);
+      sg_arr = sg_uri.Path.split('/');
+      
+      if(sg_arr.length > 3){
+        var sessionDataByCheckoutToken = {
+          "userId": _SgmntfY_._getUserId(),
+          "sessionId": _SgmntfY_._getSessionId(),
+          "checkoutToken": sg_arr[3],
+          "device": _SgmntfY_._variables.ua.type,
+          "os": _SgmntfY_._variables.ua.os,
+          "browser": _SgmntfY_._variables.ua.name,
+          "region": _SgmntfY_._variables.region
+        };
+        
+        // if user or session is not ready, retry
+        if(!sessionDataByCheckoutToken.userId || !sessionDataByCheckoutToken.sessionId) {
+          setTimeout(updateCheckout, CONTROL_INTERVAL_SGM, ++count);
+        }
+        else {
+          // send data
+          jQuery.post("/apps/segmentify/session-checkout", sessionDataByCheckoutToken, 'json');
+        }
+      }
+    }
+  }
+  
+  updateCheckout(1);
+  if(document.location.href.toString().indexOf("/checkouts") > -1 && document.location.href.toString().indexOf("/thank_you") > -1){
+    window.sgfLayer = {
+      page: {
+        category: 'Checkout Success Page'
+      }
+    }
+  }
+}
+
+function waitSegmentifyAndjQuery() {
+  if (window["_SgmntfY_"] && window["_SgmntfY_"]._getJq()) {
+    window.segJquery = window["_SgmntfY_"]._getJq();
+    
+    segJquery(document).ready(function () {
+      AddManifestJSON();
+      SegmentifyIntegration(window.segJquery);
+    });
+    
+  } else {
+    setTimeout(waitSegmentifyAndjQuery, CONTROL_INTERVAL_SGM);
+  }
+}
+
+var manifestInstalled = false;
+function AddManifestJSON(){
+  
+  if(!manifestInstalled){
+    manifestInstalled = true;
+    var manifestTag = document.createElement("link");
+    manifestTag.rel = "manifest";
+    manifestTag.href = "/apps/segmentify/manifest.json";
+    
+    document.getElementsByTagName("head")[0].appendChild(manifestTag);
+  }
+}
+
+(function () {
+  var _jq;
+  if (window.jQuery) {
+    _jq = window.jQuery;
+  } else if (window.Checkout && window.Checkout.$) {
+    _jq = window.Checkout.$;
+  }
+
+  (function (url, namespace) {
+    
+    window['SegmentifyTrackingObject'] = namespace;
+    window[namespace] = window[namespace] || function () {
+      (window[namespace].q = window[namespace].q || []).push(arguments);
+    };
+    if (!document.getElementById('__segmentify_script__')) {
+      var wa = document.createElement('script');
+      wa.id = '__segmentify_script__';
+      // wa.async = 1;
+      wa.src = url;
+      var s = document.getElementsByTagName('script')[0];
+      s.parentNode.insertBefore(wa, s);
+    }
+  })('https://cdn.segmentify.com/69718743-c404-4e91-a4dd-e6e68fb27519/segmentify.js', 'Segmentify');
+  
+  window['Segmentify'].config = {
+    segmentifyApiUrl: 'https://gandalf-eu.segmentify.com',
+    domain: 'www.polito.com.co'
+  };
+  
+  Segmentify('apikey', '69718743-c404-4e91-a4dd-e6e68fb27519');
+  
+  if(window.__sgf_customer_id__){
+    Segmentify('userId', window.__sgf_customer_id__);
+  }
+  
+  waitSegmentifyAndjQuery();
+})();
+
+function IntelliURL(){}
+
+IntelliURL.Options = {StrictMode:false, Key:["Source","Protocol","Authority","UserInfo","User","Password","Host","Port","Relative","Path","Directory","File","Query","Anchor"], Q:{Name:"QueryKey", Parser:/(?:^|&)([^&=]*)=?([^&]*)/g}, Parser:{Strict:/^(?:([^:\/?#]+):)?(?:\/\/((?:(([^:@]*)(?::([^:@]*))?)?@)?([^:\/?#]*)(?::(\d*))?))?((((?:[^?#\/]*\/)*)([^?#]*))(?:\?([^#]*))?(?:#(.*))?)/, Loose:/^(?:(?![^:@]+:[^:@\/]*@)([^:\/?#.]+):)?(?:\/\/)?((?:(([^:@]*)(?::([^:@]*))?)?@)?([^:\/?#]*)(?::(\d*))?)(((\/(?:[^?#](?![^?#\/]*\.[^?#\/.]+(?:[?#]|$)))*\/?)?([^?#\/]*))(?:\?([^#]*))?(?:#(.*))?)/}};
+
+IntelliURL.Parse = function(URL){
+  
+  var	_O	= IntelliURL.Options;
+  var	_M	= _O.Parser[_O.strictMode ? "Strict":"Loose"].exec(URL);
+  var	URI	= {};
+  var	i	= 14;
+  
+  while(i--)URI[_O.Key[i]] = _M[i] || "";
+  
+  URI[_O.Q.Name] = {};
+  URI[_O.Key[12]].replace(_O.Q.Parser, function($0, $1, $2){if($1) URI[_O.Q.Name][$1] = $2;});
+  
+  return URI;
+};

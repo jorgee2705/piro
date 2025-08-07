@@ -1,0 +1,9 @@
+$(function() {
+  $(document).on('change', '#checkout_accept_terms', function(){
+      if(this.checked) {
+          $(".newsl_btn").prop("disabled", false);
+      } else {
+          $(".newsl_btn").prop("disabled", true);
+      }
+  });        
+});  
